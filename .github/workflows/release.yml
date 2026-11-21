@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Z3 version, e.g. 5.3.3 (also the tag this release gets)"
+        required: true
+      sha256:
+        description: "SHA-256 of the official Z3 zip"
+        required: true
+      zip_name:
+        description: "File name of the official zip (default z3-<version>-arm64-osx-13.3.zip)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      SHA256: ${{ inputs.sha256 }}
+      ZIP_NAME: ${{ inputs.zip_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check inputs
+        run: |
+          [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must look like 5.3.3"; exit 1; }
+          [[ $SHA256 =~ ^[0-9a-f]{64}$ ]] || { echo "sha256 must be 64 lowercase hex digits"; exit 1; }
+          [[ -z $ZIP_NAME || $ZIP_NAME =~ ^[A-Za-z0-9._-]+\.zip$ ]] || { echo "bad zip name"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "tag $VERSION already exists"; exit 1
+          fi
+
+      - name: Build
+        run: |
+          if [[ -n $ZIP_NAME ]]; then
+            Scripts/build.sh "$VERSION" "$SHA256" "$ZIP_NAME"
+          else
+            Scripts/build.sh "$VERSION" "$SHA256"
+          fi
+
+      - name: Point Package.swift at the release
+        run: |
+          checksum=$(cat build/checksum.txt)
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION}/CZ3.xcframework.zip"
+          URL="$url" CHECKSUM="$checksum" perl -pi -e '
+            s{url: "[^"]*"}{url: "$ENV{URL}"};
+            s{checksum: "[^"]*"}{checksum: "$ENV{CHECKSUM}"};
+          ' Package.swift
+          grep -q "$url" Package.swift
+          grep -q "$checksum" Package.swift
+          cat Package.swift
+
+      - name: Commit, tag and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Package.swift
+          git commit -m "Z3 $VERSION"
+          git tag "$VERSION"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "refs/tags/$VERSION"
+
+      - name: Create the release
+        run: |
+          zip_name=${ZIP_NAME:-z3-${VERSION}-arm64-osx-13.3.zip}
+          checksum=$(cat build/checksum.txt)
+          notes="Z3 ${VERSION} for macOS arm64, from https://github.com/Z3Prover/z3/releases/download/z3-${VERSION}/${zip_name}
+          Official zip SHA-256: ${SHA256}
+          SwiftPM checksum: ${checksum}"
+          gh release create "$VERSION" build/CZ3.xcframework.zip --title "Z3 $VERSION" --notes "$notes" --verify-tag
