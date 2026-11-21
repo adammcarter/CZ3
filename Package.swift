@@ -12,8 +12,8 @@ let package = Package(
   targets: [
     .binaryTarget(
       name: "CZ3",
-      url: "https://github.com/adammcarter/CZ3/releases/download/0.0.0/CZ3.xcframework.zip",
-      checksum: "0000000000000000000000000000000000000000000000000000000000000000"
+      url: "https://github.com/adammcarter/CZ3/releases/download/5.3.3/CZ3.xcframework.zip",
+      checksum: "0771581303a568cdb4fe9b88f19f1c5a17b5d2fb83b582efbf56a815d1d70edc"
     ),
   ]
 )
